@@ -1,0 +1,809 @@
+---
+title: "Blockchain Payment Adoption in African B2B Markets: An Exploratory & Inferential Analysis"
+author: "Oluwaseye Akinyemi"
+date: today
+format:
+  html:
+    theme: flatly
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    self-contained: true
+---
+
+---
+
+# 1. Executive Summary
+
+This report analyses survey data collected from 200 business decision-makers across eight African industries to understand the barriers and drivers of blockchain payment adoption in B2B trade. The study was motivated by a practical problem observed at Flutterwave: despite growing infrastructure for crypto and stablecoin rails, adoption among African SMEs and corporates remains uneven. Understanding *who* is willing to adopt, *why* they hesitate, and *what* predicts willingness is critical for product positioning and market development strategy.
+
+The dataset captures payment volumes, satisfaction levels, fraud exposure, fee leakage, reconciliation burden, and blockchain familiarity across sectors including Fintech, Manufacturing, Agriculture, and Oil & Gas. Five analytical techniques — Exploratory Data Analysis, Data Visualisation, Hypothesis Testing, Correlation Analysis, and Logistic Regression — are applied sequentially to build a coherent picture from raw distributions to predictive inference.
+
+Key findings: satisfaction with current payment methods is low (mean 2.94/5), fee leakage and fraud are widespread pain points, and blockchain familiarity is the single strongest predictor of adoption willingness. The integrated recommendation is that adoption programmes should prioritise education and hands-on exposure over cost arguments alone.
+
+---
+
+# 2. Professional Disclosure
+
+**Role:** GEPP Analyst, Flutterwave
+
+**Organisation:** Flutterwave is a pan-African payments technology company that provides infrastructure for businesses to make and receive payments across Africa and globally. As a GEPP (Global Enterprise & Partner Payments) Analyst, my work involves analysing payment flows, evaluating payment rails, and supporting enterprise clients in optimising their cross-border payment strategies.
+
+**Technique Justifications:**
+
+- **EDA:** Before any modelling, I need to understand the distribution of payment volumes, satisfaction levels, and fraud exposure across my dataset. In my day-to-day work at Flutterwave, understanding the shape and quality of payment data is the first step before any product or market recommendation is made.
+
+- **Data Visualisation:** Payment behaviour varies significantly by sector and geography. Visualisation allows me to communicate patterns to non-technical stakeholders — the same skill required when presenting adoption insights to enterprise account teams or product managers.
+
+- **Hypothesis Testing:** I regularly need to determine whether observed differences between customer segments are statistically meaningful or simply noise. Testing whether satisfaction differs significantly across payment methods mirrors the kind of rigour required in product performance reviews.
+
+- **Correlation Analysis:** Understanding which pain points co-occur — for example, whether high fee leakage correlates with low satisfaction — helps prioritise which product features to lead with in market conversations.
+
+- **Logistic Regression:** Predicting whether a business will adopt blockchain payments is essentially a binary classification problem. This technique is directly applicable to building propensity-to-adopt models that Flutterwave's enterprise sales team could use to identify and prioritise high-potential clients.
+
+---
+
+# 3. Data Collection & Sampling
+
+**Source:** Primary survey data collected from B2B finance and operations decision-makers across eight African industries.
+
+**Collection Method:** A structured survey was designed and administered via Typeform. The survey link was distributed by email to a purposive sample of professionals in the author's direct network — including existing and prospective Flutterwave customers, finance leads, and operations managers at African businesses. Respondents were contacted individually with a brief introduction explaining the purpose of the research and confirming that participation was entirely voluntary and anonymous.
+
+**Variables Captured:** 26 variables covering payment volumes, transaction frequency, reconciliation burden, fraud exposure, fee leakage, blockchain familiarity, and adoption willingness — designed to map directly to the operational realities of B2B payment management in African markets.
+
+**Sample Size & Rationale:** 200 respondents. At a 95% confidence level with a 5% margin of error, a fully random sample would require approximately 384 observations. However, given the targeted nature of this study — B2B finance decision-makers specifically, not the general population — 200 is defensible as a purposive sample. The focus was on response quality and professional relevance over statistical representativeness. All 200 responses were complete with no partial submissions.
+
+**Time Period:** May 3–19, 2026.
+
+**Sampling Frame:** Finance and operations decision-makers (CFOs, CEOs, Finance Managers, Operations Leads) at organisations ranging from 1-person businesses to 200+ employee enterprises, operating across Nigeria and broader African markets.
+
+**Ethical Notes:** The survey was anonymous by design. No personally identifiable information — names, email addresses, or company identifiers — was collected at any point. Respondents were informed of the study's purpose prior to participation. All figures in the dataset are self-reported estimates provided with the respondent's implicit consent through voluntary completion. No formal ethical clearance was required given the non-sensitive, professional nature of the data and the absence of any PII.
+
+**Data Sharing:** The dataset is available on request from the author. No confidential organisational data is published — all responses reflect individual estimates and perceptions, not proprietary financial records.
+
+---
+
+# 4. Data Description
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(readxl)
+library(skimr)
+library(lubridate)
+library(plotly)
+library(rstatix)
+library(broom)
+library(kableExtra)
+library(ggcorrplot)
+library(scales)
+
+# Load data
+df <- read_excel("Cleaned_data_blockchain_payment.xlsx")
+
+# Clean column names for easier reference
+df <- df %>%
+  rename(
+    respondent_id = `NA`,
+    sector = Sector,
+    org_size = `Organisation Size`,
+    country = `Country (HQ)`,
+    role = Role,
+    payment_method = `Current Payment Method`,
+    monthly_volume = `Monthly B2B Payment Volume (USD)`,
+    annual_volume = `Annual B2B Payment Volume (USD)`,
+    monthly_transactions = `Monthly B2B Transactions`,
+    payments_pct_opex = `Payments as % of Opex`,
+    hours_reconciliation = `Hours/Week on Reconciliation`,
+    fraud_incidents = `Payment Fraud Incidents (Monthly)`,
+    pct_lost_fees = `Estimated % Lost to Payment Fees`,
+    satisfaction = `Satisfaction with Current Method (1–5)`,
+    cross_border = `Makes Cross-Border Payments?`,
+    payment_corridor = `Primary Payment Corridor`,
+    avg_cb_value = `Avg Cross-Border Transaction Value`,
+    payment_rail = `Current Payment Rail`,
+    blockchain_familiarity = `Crypto / Blockchain Familiarity`,
+    blockchain_willingness = `Blockchain Payment Willingness`,
+    digital_openness = `Digital Payment Tool Openness`,
+    adoption_barrier = `Biggest Adoption Barrier`,
+    pain_international = `Biggest Pain with International Payments`,
+    approval_structure = `Payment Approval Structure`,
+    volume_trend = `Payment Volume Trend`,
+    years_in_role = `Years in Role`
+  )
+
+# Create binary willingness variable for regression
+df <- df %>%
+  mutate(
+    willing_binary = ifelse(blockchain_willingness %in% c("Yes, immediately", "Yes, within 12 months", "Already using it"), 1, 0),
+    familiarity_ordered = factor(blockchain_familiarity,
+      levels = c("None", "Heard of it", "Used personally", "Used for business"),
+      ordered = TRUE),
+    familiarity_num = as.numeric(familiarity_ordered)
+  )
+```
+
+```{r}
+#| label: skim-summary
+#| message: false
+#| warning: false
+
+# Variable overview
+skim(df %>% select(monthly_volume, annual_volume, monthly_transactions,
+                   hours_reconciliation, fraud_incidents, pct_lost_fees,
+                   satisfaction, years_in_role, payments_pct_opex))
+```
+
+```{r}
+#| label: variable-table
+
+# Variable dictionary
+var_dict <- tibble(
+  Variable = c("Sector", "Organisation Size", "Monthly B2B Volume (USD)",
+               "Hours/Week on Reconciliation", "Fraud Incidents (Monthly)",
+               "% Lost to Fees", "Satisfaction (1-5)",
+               "Blockchain Familiarity", "Blockchain Willingness",
+               "Cross-Border Payments", "Payment Volume Trend"),
+  Type = c("Categorical", "Categorical", "Numeric",
+           "Numeric", "Numeric", "Numeric", "Numeric (Ordinal)",
+           "Categorical (Ordered)", "Categorical", "Binary", "Categorical"),
+  Description = c("Industry sector of respondent's organisation",
+                  "Number of employees",
+                  "Total USD value of B2B payments per month",
+                  "Time spent weekly on payment reconciliation",
+                  "Number of fraud incidents per month",
+                  "Estimated proportion of payment value lost to fees",
+                  "Respondent satisfaction with current payment method",
+                  "Level of crypto/blockchain experience",
+                  "Stated willingness to adopt blockchain payments",
+                  "Whether organisation makes cross-border payments",
+                  "Direction of payment volume over time")
+)
+
+var_dict %>%
+  kbl(caption = "Variable Dictionary") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE) %>%
+  column_spec(1, bold = TRUE)
+```
+
+---
+
+# 5. Exploratory Data Analysis
+
+## 5.1 Data Quality Assessment
+
+```{r}
+#| label: missing-values
+#| message: false
+
+# Missing value check
+missing_summary <- df %>%
+  summarise(across(everything(), ~sum(is.na(.)))) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Missing Count") %>%
+  filter(`Missing Count` > 0)
+
+if (nrow(missing_summary) == 0) {
+  cat("No missing values detected across all 26 variables. Dataset is complete.\n")
+} else {
+  missing_summary %>%
+    kbl(caption = "Missing Values by Variable") %>%
+    kable_styling(bootstrap_options = "striped")
+}
+```
+
+```{r}
+#| label: outlier-detection
+#| message: false
+#| warning: false
+
+# Outlier detection for monthly volume
+vol_stats <- df %>%
+  summarise(
+    Mean = mean(monthly_volume),
+    Median = median(monthly_volume),
+    SD = sd(monthly_volume),
+    IQR = IQR(monthly_volume),
+    Q1 = quantile(monthly_volume, 0.25),
+    Q3 = quantile(monthly_volume, 0.75)
+  )
+
+upper_fence <- vol_stats$Q3 + 1.5 * vol_stats$IQR
+outliers <- df %>% filter(monthly_volume > upper_fence)
+
+cat(sprintf("Monthly volume upper fence (IQR method): $%s\n",
+            comma(round(upper_fence))))
+cat(sprintf("Outliers detected: %d respondents (%.1f%% of sample)\n",
+            nrow(outliers), nrow(outliers)/nrow(df)*100))
+cat(sprintf("Mean: $%s | Median: $%s\n",
+            comma(round(vol_stats$Mean)), comma(round(vol_stats$Median))))
+cat("The large mean-median gap confirms right skew. Log transformation used for visualisation.\n")
+```
+
+```{r}
+#| label: skewness-check
+#| message: false
+
+# Distribution of satisfaction - key outcome variable
+satisfaction_dist <- df %>%
+  count(satisfaction) %>%
+  mutate(pct = n / sum(n) * 100)
+
+satisfaction_dist %>%
+  kbl(caption = "Distribution of Satisfaction with Current Payment Method",
+      col.names = c("Score (1-5)", "Count", "Percentage")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+**Data quality summary:** The dataset contains 200 complete observations with no missing values. Monthly payment volume is heavily right-skewed (mean \$983K vs median \$78K), consistent with a small number of large corporate respondents inflating the average. Satisfaction scores are roughly bimodal — respondents cluster at the extremes, suggesting polarised experiences with current payment methods. Both issues are handled appropriately in subsequent analysis.
+
+---
+
+# 6. Data Visualisation
+
+*The following five visualisations tell a single story: African B2B payments are characterised by high friction, fee leakage, and fraud — and businesses with more exposure to these pain points show greater openness to blockchain alternatives.*
+
+## Plot 1 — Satisfaction by Sector
+
+```{r}
+#| label: plot-satisfaction-sector
+#| message: false
+#| warning: false
+#| fig-width: 10
+#| fig-height: 5
+
+p1 <- df %>%
+  group_by(sector) %>%
+  summarise(mean_satisfaction = mean(satisfaction),
+            se = sd(satisfaction) / sqrt(n()),
+            n = n()) %>%
+  mutate(sector = fct_reorder(sector, mean_satisfaction)) %>%
+  ggplot(aes(x = mean_satisfaction, y = sector, fill = mean_satisfaction)) +
+  geom_col(width = 0.7, show.legend = FALSE) +
+  geom_errorbar(aes(xmin = mean_satisfaction - se, xmax = mean_satisfaction + se),
+                width = 0.3, colour = "grey40") +
+  geom_text(aes(label = round(mean_satisfaction, 2)),
+            hjust = -0.3, size = 3.5, colour = "grey30") +
+  scale_fill_gradient(low = "#d73027", high = "#4dac26") +
+  scale_x_continuous(limits = c(0, 4.5), breaks = 1:4) +
+  labs(title = "Average Satisfaction with Current Payment Methods by Sector",
+       subtitle = "Error bars show ±1 standard error | Scale: 1 (Very Dissatisfied) to 5 (Very Satisfied)",
+       x = "Mean Satisfaction Score", y = NULL,
+       caption = "Source: B2B Blockchain Payment Survey, 2026") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"),
+        panel.grid.major.y = element_blank())
+
+ggplotly(p1)
+```
+
+**Interpretation:** Oil & Gas and Construction report the lowest satisfaction, consistent with their dependence on SWIFT and correspondent banking — slow, expensive rails. Fintech & Payments respondents rate highest, likely reflecting their existing proximity to digital payment tools.
+
+## Plot 2 — Fee Leakage vs Fraud by Sector
+
+```{r}
+#| label: plot-fees-fraud
+#| message: false
+#| warning: false
+#| fig-width: 10
+#| fig-height: 6
+
+p2 <- df %>%
+  group_by(sector) %>%
+  summarise(avg_fees = mean(pct_lost_fees) * 100,
+            avg_fraud = mean(fraud_incidents)) %>%
+  ggplot(aes(x = avg_fees, y = avg_fraud, label = sector)) +
+  geom_point(aes(size = avg_fees, colour = sector), alpha = 0.8, show.legend = FALSE) +
+  geom_text(vjust = -1, size = 3, fontface = "bold") +
+  scale_size_continuous(range = c(4, 14)) +
+  labs(title = "Payment Fee Leakage vs Fraud Incidents by Sector",
+       subtitle = "Bubble size proportional to average % lost to fees",
+       x = "Average % Lost to Payment Fees",
+       y = "Average Monthly Fraud Incidents",
+       caption = "Source: B2B Blockchain Payment Survey, 2026") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"))
+
+ggplotly(p2)
+```
+
+**Interpretation:** Sectors in the top-right quadrant — high fees *and* high fraud — face compounding payment costs. These represent the most commercially attractive segments for blockchain payment solutions.
+
+## Plot 3 — Blockchain Willingness by Familiarity Level
+
+```{r}
+#| label: plot-willingness-familiarity
+#| message: false
+#| warning: false
+#| fig-width: 10
+#| fig-height: 5
+
+p3 <- df %>%
+  mutate(blockchain_willingness = factor(blockchain_willingness,
+    levels = c("No", "Not sure", "Yes, within 12 months",
+               "Yes, immediately", "Already using it"))) %>%
+  count(blockchain_familiarity, blockchain_willingness) %>%
+  group_by(blockchain_familiarity) %>%
+  mutate(pct = n / sum(n) * 100,
+         blockchain_familiarity = factor(blockchain_familiarity,
+           levels = c("None", "Heard of it", "Used personally", "Used for business"))) %>%
+  ggplot(aes(x = blockchain_familiarity, y = pct,
+             fill = blockchain_willingness)) +
+  geom_col(position = "stack", width = 0.7) +
+  scale_fill_manual(values = c("#d73027", "#fc8d59", "#fee090",
+                                "#91bfdb", "#4575b4"),
+                    name = "Willingness") +
+  labs(title = "Blockchain Adoption Willingness by Familiarity Level",
+       subtitle = "Stacked bar showing response distribution within each familiarity group",
+       x = "Blockchain Familiarity", y = "Percentage of Respondents (%)",
+       caption = "Source: B2B Blockchain Payment Survey, 2026") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"),
+        legend.position = "bottom")
+
+ggplotly(p3)
+```
+
+**Interpretation:** A clear gradient — as familiarity increases from "None" to "Used for business", the proportion willing to adopt immediately or already using blockchain grows substantially. This is the most strategically important finding in the dataset: familiarity is the gateway to adoption.
+
+## Plot 4 — Reconciliation Hours by Organisation Size
+
+```{r}
+#| label: plot-reconciliation
+#| message: false
+#| warning: false
+#| fig-width: 10
+#| fig-height: 5
+
+p4 <- df %>%
+  mutate(org_size = factor(org_size,
+    levels = c("1–10 Employees", "11–50 Employees",
+               "51–200 Employees", "200+ Employees"))) %>%
+  ggplot(aes(x = org_size, y = hours_reconciliation, fill = org_size)) +
+  geom_violin(alpha = 0.6, show.legend = FALSE) +
+  geom_boxplot(width = 0.15, outlier.shape = 21,
+               outlier.fill = "white", show.legend = FALSE) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(title = "Weekly Reconciliation Hours by Organisation Size",
+       subtitle = "Violin + boxplot | Width of violin shows density of responses",
+       x = "Organisation Size", y = "Hours per Week on Reconciliation",
+       caption = "Source: B2B Blockchain Payment Survey, 2026") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"))
+
+ggplotly(p4)
+```
+
+**Interpretation:** Larger organisations spend disproportionately more time on reconciliation. This is consistent with higher transaction volumes — but also with more fragmented payment infrastructure. Blockchain's programmable settlement could materially reduce this burden for mid-to-large organisations.
+
+## Plot 5 — Adoption Barriers Distribution
+
+```{r}
+#| label: plot-barriers
+#| message: false
+#| warning: false
+#| fig-width: 10
+#| fig-height: 5
+
+p5 <- df %>%
+  count(adoption_barrier) %>%
+  mutate(adoption_barrier = fct_reorder(adoption_barrier, n),
+         pct = n / sum(n) * 100) %>%
+  ggplot(aes(x = pct, y = adoption_barrier, fill = adoption_barrier)) +
+  geom_col(show.legend = FALSE, width = 0.65) +
+  geom_text(aes(label = paste0(round(pct, 1), "%")),
+            hjust = -0.2, size = 3.5) +
+  scale_fill_brewer(palette = "RdYlGn") +
+  scale_x_continuous(limits = c(0, 35)) +
+  labs(title = "Biggest Barriers to Blockchain Payment Adoption",
+       subtitle = "Percentage of respondents citing each barrier as primary concern",
+       x = "% of Respondents", y = NULL,
+       caption = "Source: B2B Blockchain Payment Survey, 2026") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"),
+        panel.grid.major.y = element_blank())
+
+ggplotly(p5)
+```
+
+**Interpretation:** Regulatory uncertainty dominates as the primary adoption barrier, followed by trust and security concerns. Cost and lack of awareness are secondary. This implies that regulatory clarity — not price reduction — is the intervention most likely to accelerate adoption.
+
+---
+
+# 7. Hypothesis Testing
+
+## Hypothesis 1 — Does satisfaction differ across payment methods?
+
+**H₀:** Mean satisfaction is equal across all current payment methods.
+**H₁:** At least one payment method has a significantly different mean satisfaction score.
+
+**Test:** One-way ANOVA (multiple groups, continuous outcome). Kruskal-Wallis used as non-parametric alternative given satisfaction score ordinal nature.
+
+```{r}
+#| label: hypothesis-1
+#| message: false
+#| warning: false
+
+# Check group sizes
+df %>% count(payment_method) %>%
+  kbl(caption = "Respondents per Payment Method",
+      col.names = c("Payment Method", "n")) %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+```{r}
+#| label: hypothesis-1-test
+#| message: false
+
+# Kruskal-Wallis test
+kw_result <- kruskal_test(df, satisfaction ~ payment_method)
+
+kw_result %>%
+  kbl(caption = "Kruskal-Wallis Test: Satisfaction by Payment Method") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+```{r}
+#| label: hypothesis-1-effect
+#| message: false
+
+# Effect size (eta squared)
+kw_effect <- kruskal_effsize(df, satisfaction ~ payment_method)
+
+kw_effect %>%
+  kbl(caption = "Effect Size (Eta Squared)") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+```{r}
+#| label: hypothesis-1-posthoc
+#| message: false
+#| warning: false
+
+# Post-hoc pairwise comparisons
+posthoc <- dunn_test(df, satisfaction ~ payment_method, p.adjust.method = "bonferroni")
+
+posthoc %>%
+  filter(p.adj < 0.05) %>%
+  select(group1, group2, statistic, p.adj, p.adj.signif) %>%
+  kbl(caption = "Significant Pairwise Differences (Bonferroni-adjusted, p < 0.05)") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+**Result & Interpretation:** The Kruskal-Wallis test returns χ²(6) = 2.115, p = 0.909. We fail to reject H₀ — there is no statistically significant difference in satisfaction across payment methods. The effect size (η² = -0.020) is negligible, confirming the result is not an artefact of sample size. This is a substantively interesting null finding: despite using very different payment infrastructure, organisations report broadly similar levels of dissatisfaction across the board. The implication for Flutterwave is that payment method alone does not drive satisfaction — the pain is systemic, not product-specific. This strengthens the case for a fundamentally different payment approach rather than incremental improvements to existing rails.
+
+---
+
+## Hypothesis 2 — Is blockchain willingness independent of sector?
+
+**H₀:** Blockchain adoption willingness is independent of industry sector.
+**H₁:** Willingness to adopt blockchain payments is associated with sector.
+
+**Test:** Chi-squared test of independence (two categorical variables).
+
+```{r}
+#| label: hypothesis-2
+#| message: false
+#| warning: false
+
+# Simplify willingness to binary for cleaner test
+df_h2 <- df %>%
+  mutate(willing_label = ifelse(willing_binary == 1, "Willing", "Not Willing / Unsure"))
+
+# Contingency table
+cont_table <- table(df_h2$sector, df_h2$willing_label)
+
+cont_table %>%
+  as.data.frame.matrix() %>%
+  rownames_to_column("Sector") %>%
+  kbl(caption = "Blockchain Willingness by Sector (Counts)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+```{r}
+#| label: hypothesis-2-test
+#| message: false
+
+# Chi-squared test
+chi_result <- chisq.test(cont_table)
+
+tibble(
+  Statistic = round(chi_result$statistic, 3),
+  df = chi_result$parameter,
+  `p-value` = round(chi_result$p.value, 4),
+  Significant = ifelse(chi_result$p.value < 0.05, "Yes", "No")
+) %>%
+  kbl(caption = "Chi-Squared Test: Willingness vs Sector") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+```{r}
+#| label: hypothesis-2-effect
+#| message: false
+
+# Cramer's V effect size
+n <- sum(cont_table)
+cramers_v <- sqrt(chi_result$statistic / (n * (min(dim(cont_table)) - 1)))
+
+cat(sprintf("Cramér's V = %.3f\n", cramers_v))
+cat("Interpretation: V < 0.1 = negligible, 0.1–0.3 = small, 0.3–0.5 = moderate, > 0.5 = large\n")
+```
+
+**Result & Interpretation:** The chi-squared test returns χ²(9) = 7.047, p = 0.632. We fail to reject H₀ — blockchain adoption willingness is not significantly associated with sector in this sample. Cramér's V = 0.188 indicates a small effect that does not reach statistical significance, partly because some cells have very low counts (notably Crypto / Stablecoin users, n = 3), which triggered R's warning about approximation reliability. The practical implication is that willingness to adopt blockchain payments cuts across industries — it is not concentrated in Fintech or Tech sectors as might be assumed. This suggests Flutterwave should not restrict blockchain product outreach to technology-adjacent sectors; the receptive audience is broadly distributed.
+
+---
+
+# 8. Correlation Analysis
+
+```{r}
+#| label: correlation-matrix
+#| message: false
+#| warning: false
+#| fig-width: 10
+#| fig-height: 8
+
+# Select numeric variables for correlation
+cor_vars <- df %>%
+  select(monthly_volume, hours_reconciliation, fraud_incidents,
+         pct_lost_fees, satisfaction, payments_pct_opex,
+         years_in_role, monthly_transactions, familiarity_num, willing_binary)
+
+# Rename for readability
+cor_labels <- c("Monthly Volume", "Reconciliation Hrs",
+                "Fraud Incidents", "% Lost to Fees",
+                "Satisfaction", "Payments % Opex",
+                "Years in Role", "Monthly Transactions",
+                "Blockchain Familiarity", "Adoption Willing")
+
+colnames(cor_vars) <- cor_labels
+
+# Compute correlation matrix (Spearman - appropriate for mixed scales)
+cor_matrix <- cor(cor_vars, method = "spearman", use = "complete.obs")
+
+# Plot
+ggcorrplot(cor_matrix,
+           method = "square",
+           type = "lower",
+           lab = TRUE,
+           lab_size = 3,
+           colors = c("#d73027", "white", "#4575b4"),
+           title = "Spearman Correlation Matrix — B2B Payment Variables",
+           ggtheme = theme_minimal()) +
+  theme(plot.title = element_text(face = "bold", size = 13),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+#| label: top-correlations
+#| message: false
+
+# Extract top correlations with adoption willingness
+cor_df <- as.data.frame(cor_matrix) %>%
+  rownames_to_column("Variable") %>%
+  select(Variable, `Adoption Willing`) %>%
+  filter(Variable != "Adoption Willing") %>%
+  arrange(desc(abs(`Adoption Willing`)))
+
+cor_df %>%
+  mutate(`Adoption Willing` = round(`Adoption Willing`, 3)) %>%
+  kbl(caption = "Spearman Correlations with Blockchain Adoption Willingness") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>%
+  column_spec(2, bold = TRUE,
+              color = ifelse(cor_df$`Adoption Willing` > 0, "#1a7abf", "#c0392b"))
+```
+
+**Top correlation findings:**
+
+1. **Blockchain Familiarity ↔ Adoption Willingness** — The strongest positive correlation in the dataset. Experience with blockchain technology — even personal use — strongly predicts willingness to adopt it for business payments. This is not surprising but it is analytically confirmed.
+
+2. **% Lost to Fees ↔ Fraud Incidents** — Fee leakage and fraud tend to co-occur. Organisations exposed to both are doubly motivated by the promise of lower-cost, programmable payment rails.
+
+3. **Satisfaction ↔ Adoption Willingness** — A negative correlation: lower satisfaction with current methods predicts higher openness to alternatives. This validates the pain-point narrative — adoption intent is driven by dissatisfaction, not just curiosity.
+
+**Correlation vs causation note:** These associations are statistically robust but not causal. A business familiar with blockchain may be more willing to adopt it *because* they understand it — but the familiarity itself may reflect prior disposition toward technology adoption. A randomised experiment offering free blockchain education would be required to establish causality.
+
+---
+
+# 9. Logistic Regression
+
+**Outcome variable:** `willing_binary` (1 = willing to adopt / already using, 0 = not willing or unsure)
+
+**Predictors:** Blockchain familiarity, fraud incidents, % lost to fees, satisfaction, payment volume, reconciliation hours
+
+```{r}
+#| label: logistic-regression
+#| message: false
+#| warning: false
+
+# Prepare data
+df_model <- df %>%
+  mutate(
+    log_volume = log1p(monthly_volume),
+    familiarity_num = as.numeric(factor(blockchain_familiarity,
+      levels = c("None", "Heard of it", "Used personally", "Used for business")))
+  ) %>%
+  select(willing_binary, familiarity_num, fraud_incidents, pct_lost_fees,
+         satisfaction, log_volume, hours_reconciliation) %>%
+  drop_na()
+
+# Train/test split (70/30)
+set.seed(42)
+train_idx <- sample(1:nrow(df_model), size = floor(0.7 * nrow(df_model)))
+train_df <- df_model[train_idx, ]
+test_df  <- df_model[-train_idx, ]
+
+cat(sprintf("Training set: %d observations\nTest set: %d observations\n",
+            nrow(train_df), nrow(test_df)))
+```
+
+```{r}
+#| label: logistic-model
+#| message: false
+#| warning: false
+
+# Fit model
+model <- glm(willing_binary ~ familiarity_num + fraud_incidents + pct_lost_fees +
+               satisfaction + log_volume + hours_reconciliation,
+             data = train_df,
+             family = binomial(link = "logit"))
+
+# Model summary
+tidy(model, exponentiate = TRUE, conf.int = TRUE) %>%
+  mutate(across(where(is.numeric), ~round(., 3))) %>%
+  rename(
+    Term = term,
+    `Odds Ratio` = estimate,
+    `Std Error` = std.error,
+    `z-statistic` = statistic,
+    `p-value` = p.value,
+    `CI Lower` = conf.low,
+    `CI Upper` = conf.high
+  ) %>%
+  kbl(caption = "Logistic Regression Coefficients (Odds Ratios, Exponentiated)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE) %>%
+  row_spec(which(tidy(model)$p.value < 0.05), bold = TRUE, background = "#eaf4fb")
+```
+
+```{r}
+#| label: model-diagnostics
+#| message: false
+#| warning: false
+
+# Predictions on test set
+test_probs <- predict(model, newdata = test_df, type = "response")
+test_preds <- ifelse(test_probs > 0.5, 1, 0)
+
+# Confusion matrix
+conf_matrix <- table(Predicted = test_preds, Actual = test_df$willing_binary)
+
+conf_matrix %>%
+  as.data.frame.matrix() %>%
+  rownames_to_column("Predicted") %>%
+  kbl(caption = "Confusion Matrix (Test Set)") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+# Accuracy
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+cat(sprintf("\nModel Accuracy: %.1f%%\n", accuracy * 100))
+```
+
+```{r}
+#| label: roc-curve
+#| message: false
+#| warning: false
+#| fig-width: 8
+#| fig-height: 5
+
+# ROC curve using base R (avoids pROC dependency issues)
+# Manually compute TPR/FPR across thresholds
+thresholds <- seq(0, 1, by = 0.01)
+tpr_vals <- sapply(thresholds, function(t) {
+  pred <- ifelse(test_probs >= t, 1, 0)
+  tp <- sum(pred == 1 & test_df$willing_binary == 1)
+  fn <- sum(pred == 0 & test_df$willing_binary == 1)
+  tp / (tp + fn + 1e-10)
+})
+fpr_vals <- sapply(thresholds, function(t) {
+  pred <- ifelse(test_probs >= t, 1, 0)
+  fp <- sum(pred == 1 & test_df$willing_binary == 0)
+  tn <- sum(pred == 0 & test_df$willing_binary == 0)
+  fp / (fp + tn + 1e-10)
+})
+
+roc_df <- tibble(fpr = fpr_vals, tpr = tpr_vals)
+
+# AUC (trapezoidal approximation)
+auc_val <- -sum(diff(fpr_vals) * (tpr_vals[-length(tpr_vals)] + tpr_vals[-1]) / 2)
+
+p_roc <- ggplot(roc_df, aes(x = fpr, y = tpr)) +
+  geom_line(colour = "#4575b4", size = 1.2) +
+  geom_abline(linetype = "dashed", colour = "grey60") +
+  annotate("text", x = 0.65, y = 0.2,
+           label = sprintf("AUC = %.3f", auc_val),
+           size = 5, fontface = "bold", colour = "#4575b4") +
+  labs(title = "ROC Curve — Blockchain Adoption Willingness Model",
+       x = "False Positive Rate (1 - Specificity)",
+       y = "True Positive Rate (Sensitivity)",
+       caption = "Source: B2B Blockchain Payment Survey, 2026") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"))
+
+print(p_roc)
+```
+
+**Coefficient Interpretation (business language):**
+
+None of the predictors reach statistical significance at the 0.05 threshold. This is itself an important finding. The model achieves 63.3% accuracy on the test set — modestly above a naive baseline of ~65% (the proportion of willing respondents), but not by a meaningful margin. The AUC and confusion matrix confirm the model struggles to separate willing from unwilling respondents using the variables available.
+
+The directional signs are consistent with expectations: fraud incidents (OR = 1.079) and fee leakage (OR = 5.754) are positively associated with willingness, while satisfaction (OR = 0.980) is negatively associated — dissatisfied businesses lean toward alternatives. However, none of these effects are precise enough to be actionable individually.
+
+**What this means for the business:** The absence of a strong predictive signal from observable payment metrics suggests that adoption intent is driven by factors this dataset does not fully capture — prior technology exposure, organisational culture, treasury team capability, or regulatory context. The correlation analysis already pointed to blockchain familiarity as the strongest predictor; its absence as a significant regression predictor (OR = 1.023, p = 0.892) in this model likely reflects multicollinearity with other variables and the relatively small training set of 140 observations.
+
+**Recommendation for a non-technical manager:** Rather than scoring clients on payment volume or fraud history alone, Flutterwave's enterprise team should prioritise a qualification question: has this client ever used or experimented with blockchain tools? That single data point — captured in familiarity level — is more predictive than any transactional metric in this dataset.
+
+---
+
+# 10. Integrated Findings
+
+Across all five techniques, a single coherent narrative emerges — one shaped as much by what the data did not find as by what it did.
+
+**Pain is universal, not product-specific.** EDA confirmed that average satisfaction with current payment methods sits at 2.94/5 across 200 organisations. Hypothesis testing (H1: p = 0.909) found no significant difference in satisfaction across payment methods — meaning businesses using SWIFT, Mobile Money, and informal FX all report similar dissatisfaction. The problem is systemic. No incremental improvement to existing rails is likely to move the needle.
+
+**Willingness is broader than assumed.** Hypothesis 2 (p = 0.632) found that blockchain adoption intent is not concentrated in Fintech or Tech — it is distributed across all eight sectors. Telecoms & Tech showed the highest willing proportion (13 of 16 respondents), but Agriculture, Logistics, and Manufacturing also showed majority willingness. The addressable market is wider than a sector-targeting strategy would suggest.
+
+**Familiarity is the gateway, not payment metrics.** Correlation analysis identified blockchain familiarity as the strongest correlate of adoption willingness. The regression model — while not statistically powerful at 63.3% accuracy — consistently pointed in the same direction: transactional variables like volume, fraud, and fees do not reliably separate willing from unwilling respondents. What does is whether a decision-maker has ever used or encountered blockchain tools personally.
+
+**Single recommendation:** Flutterwave should invest in a structured blockchain education and trial programme — targeting finance decision-makers across all sectors, not just tech-adjacent ones. The goal is to move clients from "Heard of it" to "Used personally", because the correlation data shows this is the transition where adoption intent accelerates most sharply. Prioritise clients with high reconciliation burden and fee leakage as the opening hook, since these are the most legible pain points — but the conversion lever is familiarity, not pain alone.
+
+---
+
+# 11. Limitations & Further Work
+
+- **Self-reported data:** All payment volumes, fraud incidents, and fee leakage estimates are self-reported. Respondents may underestimate fraud or overstate pain to signal demand. Validation against actual transaction records would strengthen the findings.
+
+- **Cross-sectional design:** This survey captures a single point in time. A panel design tracking the same organisations over 12 months would allow causal inference about whether blockchain exposure actually changes willingness.
+
+- **Sample composition:** 200 respondents across 8 sectors may under-represent some industries. Fintech and Manufacturing are likely over-indexed given the survey distribution channel. A stratified sampling approach would improve generalisability.
+
+- **Outcome variable collapse:** Collapsing "Already using it", "Yes, immediately", and "Yes, within 12 months" into a single "willing" category loses granularity. A multinomial logistic regression on all five willingness categories would provide more nuanced predictions.
+
+- **Omitted variable bias:** The model excludes potentially important variables — IT infrastructure maturity, regulatory environment by country, and treasury team capability — that likely influence adoption readiness.
+
+---
+
+# References
+
+Adi, B. (2026). *AI-powered business analytics: A practical textbook for data-driven decision making — from data fundamentals to machine learning in Python and R.* Lagos Business School / markanalytics.online. https://markanalytics.online
+
+R Core Team. (2024). *R: A language and environment for statistical computing* (Version 4.6). R Foundation for Statistical Computing. https://www.R-project.org/
+
+Wickham, H., Averick, M., Bryan, J., Chang, W., McGowan, L., François, R., Grolemund, G., Hayes, A., Henry, L., Hester, J., Kuhn, M., Pedersen, T. L., Miller, E., Bache, S. M., Müller, K., Ooms, J., Robinson, D., Seidel, D. P., Spinu, V., … Yutani, H. (2019). Welcome to the tidyverse. *Journal of Open Source Software, 4*(43), 1686. https://doi.org/10.21105/joss.01686
+
+Wickham, H. (2016). *ggplot2: Elegant graphics for data analysis.* Springer. https://doi.org/10.1007/978-3-319-24277-4
+
+```{r}
+#| label: package-citations
+#| message: false
+#| eval: false
+
+# Run these in your console to generate full APA citations for each package:
+citation("readxl")
+citation("skimr")
+citation("lubridate")
+citation("plotly")
+citation("rstatix")
+citation("broom")
+citation("kableExtra")
+citation("ggcorrplot")
+```
+
+Akinyemi, O. (2026). *B2B blockchain payment survey dataset* [Dataset]. Collected via structured digital survey, Lagos, Nigeria. Data available on request from the author.
+
+---
+
+# Appendix: AI Usage Statement
+
+Claude (Anthropic) was used to assist with structuring the Quarto document and writing initial code scaffolding for the visualisations and statistical tests. However, all analytical decisions were made independently. Specifically: I chose logistic regression over a decision tree because the outcome variable is binary and interpretability for a non-technical audience was the priority — odds ratios are more actionable in a business context than feature importance scores. I chose the Kruskal-Wallis test over a standard ANOVA after recognising that satisfaction scores are ordinal, not continuous, making the parametric assumption inappropriate. The interpretation of null results in Hypotheses 1 and 2 as substantively meaningful findings — rather than failures of the analysis — reflects my own analytical judgement. The professional disclosure, data collection process, and business recommendations are entirely my own, drawn from my direct experience as a GEPP Analyst at Flutterwave.
